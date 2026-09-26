@@ -11,6 +11,8 @@ import torch.nn as nn
 import numpy as np
 import math
 from timm.models.vision_transformer import PatchEmbed, Attention, Mlp
+from torch.utils.checkpoint import checkpoint
+from LiT_linearAttn import LinearAttention
 
 
 def modulate(x, shift, scale):
@@ -99,10 +101,11 @@ class SiTBlock(nn.Module):
     """
     A SiT block with adaptive layer norm zero (adaLN-Zero) conditioning.
     """
-    def __init__(self, hidden_size, num_heads, mlp_ratio=4.0, **block_kwargs):
+    def __init__(self, hidden_size, num_heads, mlp_ratio=4.0, linear_attention=False, **block_kwargs):
         super().__init__()
         self.norm1 = nn.LayerNorm(hidden_size, elementwise_affine=False, eps=1e-6)
-        self.attn = Attention(hidden_size, num_heads=num_heads, qkv_bias=True, **block_kwargs)
+        attention_cls = LinearAttention if linear_attention else Attention
+        self.attn = attention_cls(hidden_size, num_heads=num_heads, qkv_bias=True, **block_kwargs)
         self.norm2 = nn.LayerNorm(hidden_size, elementwise_affine=False, eps=1e-6)
         mlp_hidden_dim = int(hidden_size * mlp_ratio)
         approx_gelu = lambda: nn.GELU(approximate="tanh")
@@ -155,6 +158,8 @@ class SiT(nn.Module):
         class_dropout_prob=0.1,
         num_classes=1000,
         learn_sigma=True,
+        variant="baseline",
+        gradient_checkpointing=False,
     ):
         super().__init__()
         self.learn_sigma = learn_sigma
@@ -162,6 +167,17 @@ class SiT(nn.Module):
         self.out_channels = in_channels * 2 if learn_sigma else in_channels
         self.patch_size = patch_size
         self.num_heads = num_heads
+        if variant not in ("baseline", "linear", "uvit", "linear_uvit"):
+            raise ValueError(f"Unknown SiT variant: {variant}")
+        if depth < 12 and variant in ("uvit", "linear_uvit"):
+            raise ValueError("Long skips require at least 12 blocks")
+        if depth < 4 and variant in ("linear", "linear_uvit"):
+            raise ValueError("Linear attention requires at least four blocks")
+        self.variant = variant
+        self.gradient_checkpointing = gradient_checkpointing
+        self.linear_block_indices = tuple(range(depth - 4, depth)) if "linear" in variant else ()
+        # Source output -> target input. The projection is applied before the target block.
+        self.skip_sources = {depth - 3: 2, depth - 2: 1} if "uvit" in variant else {}
 
         self.x_embedder = PatchEmbed(input_size, patch_size, in_channels, hidden_size, bias=True)
         self.t_embedder = TimestepEmbedder(hidden_size)
@@ -171,10 +187,42 @@ class SiT(nn.Module):
         self.pos_embed = nn.Parameter(torch.zeros(1, num_patches, hidden_size), requires_grad=False)
 
         self.blocks = nn.ModuleList([
-            SiTBlock(hidden_size, num_heads, mlp_ratio=mlp_ratio) for _ in range(depth)
+            SiTBlock(hidden_size, num_heads, mlp_ratio=mlp_ratio,
+                     linear_attention=i in self.linear_block_indices) for i in range(depth)
         ])
+        self.skip_projections = nn.ModuleDict({str(i): nn.Linear(2 * hidden_size, hidden_size)
+                                                for i in self.skip_sources})
         self.final_layer = FinalLayer(hidden_size, patch_size, self.out_channels)
         self.initialize_weights()
+        # Concatenation order is [deep, shallow]. At initialization, this is exactly
+        # the identity on the deep path and zero on the new shallow path.
+        for projection in self.skip_projections.values():
+            with torch.no_grad():
+                projection.weight.zero_()
+                projection.weight[:, :hidden_size].copy_(torch.eye(hidden_size))
+                projection.bias.zero_()
+
+    def freeze_backbone(self):
+        """Train only new attention modules and/or long-skip projections."""
+        if self.variant == "baseline":
+            raise ValueError("The baseline has no newly introduced modules to train")
+        for parameter in self.parameters():
+            parameter.requires_grad_(False)
+        for index in self.linear_block_indices:
+            for parameter in self.blocks[index].attn.parameters():
+                parameter.requires_grad_(True)
+        for parameter in self.skip_projections.parameters():
+            parameter.requires_grad_(True)
+
+    def architecture_summary(self):
+        total = sum(p.numel() for p in self.parameters())
+        trainable = sum(p.numel() for p in self.parameters() if p.requires_grad)
+        full = [i for i in range(len(self.blocks)) if i not in self.linear_block_indices]
+        skips = [(source, target) for target, source in self.skip_sources.items()]
+        return (f"Variant: {self.variant}; parameters: {total:,} total, "
+                f"{trainable:,} trainable ({100 * trainable / total:.2f}%); "
+                f"full attention blocks: {full}; linear attention blocks: "
+                f"{list(self.linear_block_indices)}; skips (source output -> target input): {skips}")
 
     def initialize_weights(self):
         # Initialize transformer layers:
@@ -238,8 +286,17 @@ class SiT(nn.Module):
         t = self.t_embedder(t)                   # (N, D)
         y = self.y_embedder(y, self.training)    # (N, D)
         c = t + y                                # (N, D)
-        for block in self.blocks:
-            x = block(x, c)                      # (N, T, D)
+        skips = {}
+        for index, block in enumerate(self.blocks):
+            if index in self.skip_sources:
+                source = self.skip_sources[index]
+                x = self.skip_projections[str(index)](torch.cat([x, skips.pop(source)], dim=-1))
+            if self.gradient_checkpointing and self.training and torch.is_grad_enabled():
+                x = checkpoint(block, x, c, use_reentrant=False)
+            else:
+                x = block(x, c)                  # (N, T, D)
+            if index in self.skip_sources.values():
+                skips[index] = x
         x = self.final_layer(x, c)                # (N, T, patch_size ** 2 * out_channels)
         x = self.unpatchify(x)                   # (N, out_channels, H, W)
         if self.learn_sigma:
