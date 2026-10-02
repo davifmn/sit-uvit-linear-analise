@@ -1,0 +1,215 @@
+RESUMO DA ANÁLISE — por que linear / linear_uvit ficam piores (e mais lentos) que o baseline
+e por que a uvit "parece" melhor
+Data: 2026-10-02 (análise em andamento; números marcados [PARCIAL] serão atualizados)
+=====================================================================================
+
+0. CONTEXTO E O QUE HAVIA ANTES
+-------------------------------
+Situação relatada:
+  - uvit com FID menor que o baseline (10k e 40k passos);
+  - linear e linear_uvit piores e, aparentemente, mais lentos.
+
+O que encontrei no Drive (https://drive.google.com/drive/folders/11vHsy_OznzFk1oQEBkUuSr-kAeFoFKEh):
+  - results/000-SiT-S-2-uvit-...: checkpoints 10k/20k/30k/40k + log.txt (só a uvit);
+  - pretrained_models/SiT-S-2-256.pt;
+  - data/imagenet50k_latents (cache de latents, 3,28 GB).
+  NÃO estavam lá: as runs de baseline, linear e linear_uvit, nem os CSV/JSON de FID/IS
+  (evaluation_results/). Por isso NÃO consegui reproduzir/conferir os números de FID que vocês
+  têm. Toda a análise abaixo usa uma métrica própria, pareada e com intervalo de confiança
+  (ver seção 1), recalculada aqui a partir dos pesos.
+
+Já no log.txt original da uvit (400 registros, passo 100 a 40k):
+  loss média 0,7971; primeiros 5k = 0,7978; últimos 5k = 0,7985;
+  regressão linear loss×passo: inclinação = -0,0003 por 10k passos, p = 0,29
+  => a loss de treino da uvit NÃO caiu de forma estatisticamente detectável em 40k passos.
+
+
+1. METODOLOGIA (o que foi feito)
+--------------------------------
+Ambiente: Mac M2 (MPS), venv isolado no scratchpad (torch 2.7.1, timm, torchdiffeq).
+Nenhum arquivo original do projeto foi modificado. Tudo novo está em analysis/:
+
+  analysis/common.py              helpers: build exatamente como no train.py, conjunto de avaliação
+                                  fixo, loss pareada, bootstrap
+  analysis/e1_init_damage.py      E1: dano funcional no passo 0 + uvit 10k–40k
+  analysis/e2_skip_weights.py     E2: o que os skips da uvit aprenderam (pesos + estado do Adam)
+  analysis/e3_attention_capacity.py E3: posto/entropia/localidade da atenção softmax + teto de distilação
+  analysis/e4_speed_flops.py      E4: FLOPs e latência por variante
+  analysis/e4b_latency_interleaved.py  E4b: latência intercalada (roda após o treino)
+  analysis/e5_grad_noise.py       E5: gradient noise scale (roda após o treino)
+  analysis/e6_learning_curves.py  E6: curvas 0→60k + ajuste de assíntota (roda após o treino)
+  analysis/train_mps.py           launcher: roda o train.py ORIGINAL em MPS (só libera "mps")
+  analysis/run_queue.sh           fila de treino até 60k
+  analysis/make_figures.py        gera todas as figuras em analysis/out/figs/
+  analysis/out/*.json             todos os resultados numéricos brutos
+
+Dados de avaliação: 2.000 latents reais (2 por classe, 1000 classes), baixados por range-request
+do posterior.npy (verificados byte a byte contra o cache completo depois).
+
+Métrica principal: loss de velocidade (a mesma do treino), PAREADA:
+  mesmos (x1, y, t, x0) para todos os modelos, t estratificado em [0,1].
+  ΔL = L(variante) − L(pré-treinado); IC 95% por bootstrap (10.000 reamostragens) + teste t pareado.
+  Pareamento remove a variância de ruído/t => diferenças de 1e-4 ficam detectáveis.
+Observação: os 2.000 latents fazem parte dos 50k de treino (não é held-out estrito); com 0,6–2,4M
+parâmetros treináveis e 50k imagens, sobreajuste não é relevante aqui.
+
+
+2. RESULTADOS
+-------------
+
+2.1  E1 — Dano funcional no passo 0 (figura F1_init_damage.png)
+     Loss do pré-treinado: 0,7982.  Prever v ≡ 0 daria loss ≈ 1,74 (ΔL = +0,94).
+
+     variante            loss    ΔL [IC 95%]               desvio da saída ‖v−v_pre‖/‖v_pre‖
+     uvit                0,7982  0 (idêntico)              0%
+     full_uvit           0,7982  0 (idêntico)              0%
+     linear_uvit         2,454   +1,656 [+1,608; +1,703]   128%
+     linear              2,521   +1,723 [+1,677; +1,769]   132%
+     full_linear_uvit    4,571   +3,773 [+3,655; +3,887]   195%
+     full_linear         4,884   +4,086 [+3,960; +4,208]   202%
+
+     Causa (código): checkpoint_utils.load_pretrained descarta a atenção pré-treinada dos blocos
+     trocados e a LinearAttention nasce com pesos aleatórios (xavier), MAS os gates adaLN
+     (gate_msa) desses blocos continuam pré-treinados e não-nulos => ruído entra no residual
+     stream. Com --freeze-backbone nada em volta pode se adaptar.
+     Conclusão: linear/linear_uvit começam PIORES QUE PREVER ZERO. A uvit começa exatamente no
+     baseline (skip inicializado [I, 0]).
+
+2.2  E1 — uvit 10k→40k vs pré-treinado (figura F2_uvit_random_walk.png, painel c)
+     passo   ΔL × 10³ [IC 95%]        p        desvio da saída
+     10k     +0,47 [+0,19; +0,76]     0,001    7,3%
+     20k     +0,42 [+0,16; +0,66]     0,001    7,7%
+     30k     +0,11 [−0,22; +0,45]     0,5      7,3%
+     40k     +0,63 [+0,32; +0,95]     7e-05    7,8%
+     => A uvit NÃO melhora o modelo; em 3 de 4 checkpoints ela é estatisticamente um pouco PIOR
+        (+0,06% de loss). A saída mudou ~7,5%, mas sem ganho de ajuste.
+
+2.3  E2 — O que os skips da uvit aprenderam (F2, painéis a e b)
+     ‖W_shallow‖_F (skip 2→9):  0 → 2,06 → 2,91 → 3,58 → 4,17   (10k, 20k, 30k, 40k)
+     Ajuste k·√passos: R² = 1,000 (skip 2→9) e 0,989 (skip 1→10).
+     Crescimento ∝ √t é a assinatura de PASSEIO ALEATÓRIO (difusão), não de aprendizado dirigido
+     (que tenderia a saturar ou crescer ∝ t).
+     Posto efetivo de W_shallow: ~240/384 e ~210/384 => matriz isotrópica, típica de ruído.
+     SNR do Adam, mediana de |m|/√v: 0,154 / 0,152 / 0,143 / 0,148.
+     Valor teórico para gradiente de RUÍDO PURO (β1 = 0,9): 0,6745·√(0,1/1,9) = 0,155.
+     => O gradiente dos skips com batch 8 é estatisticamente indistinguível de ruído puro.
+
+2.4  E3 — Capacidade da atenção linear (F3_attention_capacity.png, F4_entropy_by_t.png)
+     A LiT calcula φ(Q)φ(K)ᵀ com posto ≤ d_head = 64 por head; a softmax pré-treinada não tem esse
+     limite. Medido em 160 amostras reais, por bloco:
+
+     bloco  posto efetivo  saída inalcançável c/ posto 64*  massa 5×5  entropia norm.
+       8        120               2,2%                        45%        0,68
+       9        139               8,3%                        56%        0,55
+      10        120               7,8%                        50%        0,63
+      11        162              21,6%                        62%        0,47
+       1        166              21,7%                        68%        0,45   (só full_linear)
+       4        190              27,7%                        73%        0,29   (só full_linear)
+     * ‖(A−A₆₄)V‖²/‖AV‖², A₆₄ = melhor aproximação de posto 64 (Eckart-Young) — limite inferior
+       do erro do termo global da atenção linear.
+     - Todos os blocos 8–11 têm posto efetivo 120–162 > 64.
+     - A atenção fica mais afiada quando t → 1 (perto dos dados): entropia do bloco 11 cai de
+       0,66 (t<0,25) para 0,35 (t>0,75). Previsão: o déficit da linear se concentra em t alto.
+     - Os blocos 1 e 4 (substituídos só nas variantes full_*) são os mais afiados de todo o
+       modelo => explica por que full_linear é muito pior que linear.
+
+     Teto de distilação (F5_distillation_ceiling.png) [PARCIAL — blocos 8, 9, 10 prontos]:
+     treinar uma LiT para imitar diretamente a saída da softmax de cada bloco (1.500 iterações).
+       bloco 8:  init aleatória 1,011 → 0,108 | warm-start (pesos softmax) 0,247 → 0,103
+       bloco 9:  init aleatória 1,000 → 0,083 | warm-start 0,421 → 0,138
+       bloco 10: init aleatória 1,007 → 0,069 | (warm-start em andamento)
+     => Mesmo com supervisão direta, a melhor LiT erra 7–11% da saída da atenção, contra um limite
+        de posto 64 de 2–8%: há um TETO DE EXPRESSIVIDADE, não só inicialização ruim.
+        Warm-start começa muito melhor (25–42% vs 100%), mas não supera o teto.
+
+2.5  E4 — Custo computacional (F6_compute.png)
+     Contador de FLOPs do PyTorch NÃO conta o SDPA fused; corrigido analiticamente (4·N²·C):
+       atenção softmax: 402,7 MFLOPs/bloco; LiT linear: 332,3 MFLOPs/bloco (−17%).
+       Modelo inteiro: linear −2,3%; linear_uvit +0,2%; uvit +2,5%; full_uvit +6,2%.
+     Com N = 256 tokens e d_head = 64, o termo N² da softmax é pequeno perto de qkv/proj/MLP,
+     então a economia teórica é mínima. Na prática, a softmax usa kernel fused (SDPA/Flash)
+     enquanto a LiT é uma sequência de ops não-fused + DWConv => a LiT foi MAIS LENTA no módulo de
+     atenção (31–40 ms vs 22–24 ms, batch 32, MPS).
+     Ressalva: as latências do modelo inteiro medidas em processos separados mostraram ruído de
+     ±5–10% (o mesmo módulo softmax mediu 22 e 33 ms). Elas serão refeitas com o E4b (variantes
+     intercaladas no mesmo processo) quando o MPS estiver livre.
+
+2.6  Treino até 60k (fila local em MPS, protocolo igual ao de vocês) [PARCIAL]
+     Protocolo: train.py original, batch efetivo 8 (8×1 lá, 1×8 aqui — mesmo gradiente esperado),
+     AdamW lr 1e-4, wd 0, backbone congelado, sem EMA, seed 0, latents do cache; fp32 (lá era bf16).
+     Fila: linear 0→60k  →  linear_uvit 0→60k  →  uvit 40k→60k (resume do seu checkpoint,
+     com estado do otimizador)  →  baseline fine-tune completo 0→10k.
+     Velocidade: ~3,8 it/s sozinho, ~2,6 it/s com outras análises => ~12–14 h no total.
+     Andamento em 2026-10-02 19:13: linear no passo 14.100.
+
+     linear (avaliação pareada):
+       passo   loss     ΔL [IC 95%]                 % vs pré-treinado
+       0       2,521    +1,723                       +216%
+       5k      0,8377   +0,0396 [+0,0380; +0,0411]   +5,0%
+       10k     0,8244   +0,0263 [+0,0251; +0,0274]   +3,3%
+     ΔL por faixa de t em 10k:
+       t∈[0,.2): +0,0022 | [.2,.4): +0,0088 | [.4,.6): +0,0269 | [.6,.8): +0,0528 | [.8,1]: +0,0408
+     => O déficit está concentrado em t alto (detalhes finos), exatamente onde o E3 mostrou a
+        atenção mais afiada/de posto alto. Previsão do E3 confirmada.
+     => Em 10k a linear está ~45× mais longe do pré-treinado que a uvit.
+
+
+3. DIFERENÇAS EM RELAÇÃO AOS RESULTADOS/INTERPRETAÇÃO DE ANTES
+------------------------------------------------------------
+a) "uvit é melhor que o baseline" — NÃO se sustenta como ganho da arquitetura.
+   Antes: FID da uvit < FID do baseline em 10k e 40k.
+   Agora: na loss pareada a uvit é estatisticamente igual ou levemente PIOR que o modelo
+   pré-treinado (+0,0004 a +0,0006), e os pesos dos skips seguem um passeio aleatório (√t, SNR =
+   ruído puro). Explicações possíveis para o FID menor (a testar):
+     H1. O "baseline" comparado era o baseline FINE-TUNADO com batch 8 em TODOS os 33M parâmetros
+         => o mesmo ruído de gradiente degrada 55× mais parâmetros; a uvit só "estraga" 0,59M.
+         (a fila treina baseline 0→10k para medir isso diretamente; E5 vai quantificar B_noise).
+     H2. Ruído de estimativa do FID (se foi FID com poucas amostras, ex. 1k, a diferença pode
+         estar dentro do erro). Preciso dos seus CSVs (n de amostras, valores) para checar.
+     H3. A perturbação de ~7,5% na saída pode mudar a diversidade/nitidez das amostras de um jeito
+         que o FID do subconjunto de 50k favorece, sem melhorar a verossimilhança.
+
+b) "linear e linear_uvit são piores" — CONFIRMADO, com causa mecânica identificada:
+     H4. Dano na inicialização: começam com loss 2,5 (pior que prever zero) e precisam recuperar
+         o que a uvit já tem de graça. Recuperação rápida (0,87 em 1k passos) mas lenta depois.
+     H5. Teto de expressividade: posto ≤ 64 por head contra posto efetivo 120–162 da softmax nos
+         blocos 8–11; a melhor LiT distilada ainda erra 7–11%.
+     H6. Backbone congelado: os blocos 0–7 e MLPs não podem se reajustar à nova atenção.
+     H7. Gradiente ruidoso (batch 8, mesma questão da uvit) desacelera a fase final.
+
+c) "linear é mais lenta" — CONFIRMADO, e a razão é estrutural, não de implementação:
+   com 256 tokens a economia teórica é só −17% na atenção e −2,3% no modelo, e a versão
+   não-fused perde para o SDPA fused. A atenção linear só compensaria com muito mais tokens
+   (ex.: 512×512 ou patch 1).
+
+d) Correções em relação ao que eu mesmo disse no início da sessão:
+   - O primeiro benchmark de latência estava contaminado (travou por memória; processos
+     separados têm ruído de ±10%). Vale a conclusão sobre o módulo de atenção; a do modelo
+     inteiro será refeita intercalada (E4b).
+   - Os FLOPs do baseline (10,9 GFLOPs) estavam subcontados: o correto é 12,1 GFLOPs/NFE com SDPA.
+
+
+4. PENDENTE (rodando / a rodar automaticamente)
+-----------------------------------------------
+  - Treino até 60k: linear (em andamento), linear_uvit, uvit 40k→60k, baseline 0→10k.
+  - E3: distilação dos blocos 10 (warm-start) e 11.
+  - E5: gradient noise scale B_noise = tr(Σ)/‖G‖² para uvit, linear e baseline
+        (se B_noise ≫ 8, o batch 8 está dominado por ruído).
+  - E6: curvas ΔL 0→60k, ΔL por t no 60k, ajuste ΔL(s) = c + a·s^(−α) com IC bootstrap
+        (c > 0 com IC excluindo 0 => a linear NÃO alcança o baseline nesse protocolo).
+  - E4b: latência intercalada.
+  - Figuras F5, F7, F8, F9 (make_figures.py).
+
+Figuras já geradas (analysis/out/figs/):
+  F1_init_damage.png, F2_uvit_random_walk.png, F3_attention_capacity.png,
+  F4_entropy_by_t.png, F6_compute.png
+
+Sugestões para melhorar as variantes (a validar):
+  - Inicializar a LiT com os pesos q/k/v/proj da softmax (warm-start) e a DWConv em zero, ou
+    zerar gate_msa/proj para começar em identidade (como os skips) => elimina H4.
+  - Destravar os adaLN/MLP dos blocos 8–11 (ou LoRA neles) => ataca H6.
+  - Aumentar o batch efetivo (grad-accum 32–64) ou baixar o lr => ataca H7 e o passeio
+    aleatório da uvit.
+  - Distilação por bloco (softmax → LiT) antes do fine-tuning de ponta a ponta.
+  - Para comparar com o baseline de forma justa: baseline = modelo pré-treinado sem fine-tune,
+    ou baseline fine-tunado com o mesmo número de parâmetros treináveis.
