@@ -1,0 +1,16 @@
+block 8     random: rel.err start=1.011 final=0.1078
+block 8 warm_start: rel.err start=0.247 final=0.1030
+block 9     random: rel.err start=1.000 final=0.0831
+block 9 warm_start: rel.err start=0.421 final=0.1378
+block 10     random: rel.err start=1.007 final=0.0691
+block 10 warm_start: rel.err start=0.457 final=0.1358
+block 11     random: rel.err start=0.996 final=0.0653
+block 11 warm_start: rel.err start=0.489 final=0.1106
+wrote F1_init_damage.png
+wrote F2_uvit_random_walk.png
+wrote F3_attention_capacity.png
+wrote F4_entropy_by_t.png
+wrote F5_distillation_ceiling.png
+wrote F6_compute.png
+wrote F9_gradient_noise_scale.png
+E3_DONE

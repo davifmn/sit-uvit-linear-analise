@@ -11,6 +11,7 @@ held-out relative error (random init, as in training, vs warm-start from the pre
 """
 import json
 import math
+import os
 
 import torch
 import torch.nn.functional as F
@@ -51,7 +52,7 @@ def softmax_parts(attn, x):
 
 
 stats = []
-for i in range(12):
+for i in ([] if os.environ.get("E3_DISTILL_ONLY") else range(12)):
     with torch.no_grad():
         A, v = softmax_parts(model.blocks[i].attn, inputs[i])
         ent = (-(A * (A + 1e-12).log()).sum(-1) / math.log(N)).mean().item()
@@ -70,7 +71,8 @@ for i in range(12):
                entropy_by_t=[ent_t[(t >= a) & (t < a + .25)].mean().item() for a in (0, .25, .5, .75)])
     stats.append(row)
     print({k: (round(v, 4) if isinstance(v, float) else v) for k, v in row.items()}, flush=True)
-json.dump(stats, open(OUT / "e3_attention_stats.json", "w"), indent=1)
+if stats:
+    json.dump(stats, open(OUT / "e3_attention_stats.json", "w"), indent=1)
 
 
 def warm_start(lin, attn):
@@ -110,5 +112,6 @@ for i in (8, 9, 10, 11):
                     err = ((lin(X[te]) - Y[te]).pow(2).sum() / Y[te].pow(2).sum()).item()
                 curve.append((it, err))
         distill.append(dict(block=i, init=init, curve=curve, final_rel_err=curve[-1][1]))
+        json.dump(distill, open(OUT / "e3_distill.json", "w"), indent=1)   # incremental
         print(f"block {i} {init:>10}: rel.err start={curve[0][1]:.3f} final={curve[-1][1]:.4f}", flush=True)
 json.dump(distill, open(OUT / "e3_distill.json", "w"), indent=1)
