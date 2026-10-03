@@ -216,16 +216,24 @@ if e6:
 
 # F9: gradient noise scale --------------------------------------------------------------------
 e5 = load("e5_grad_noise.json")
-if e5:
-    fig, ax = plt.subplots(figsize=(7.5, 3.6))
+if e5 and all("snr_at_batch8_ci" in r for r in e5):
+    order = {"linear": 0, "linear_uvit": 1, "uvit": 2, "baseline": 3}
+    e5 = sorted(e5, key=lambda r: (order[r["variant"]], r["label"]))[::-1]
+    fig, ax = plt.subplots(figsize=(10, 0.55 * len(e5) + 1.6))
     for i, r in enumerate(e5):
-        ax.barh(i, r["B_noise"], color=COL[r["variant"]], height=.6)
-        ax.errorbar(r["B_noise"], i, xerr=[[r["B_noise"] - r["B_noise_ci"][0]], [r["B_noise_ci"][1] - r["B_noise"]]],
-                    color=INK, capsize=3, lw=1)
-        ax.text(r["B_noise_ci"][1] * 1.15, i, f"B_noise≈{r['B_noise']:.0f}   SNR@8={r['snr_at_batch8']:.2f}",
+        snr, (lo, hi) = r["snr_at_batch8"], r["snr_at_batch8_ci"]
+        ax.barh(i, max(snr, 0), color=COL[r["variant"]], height=.6)
+        ax.errorbar(max(snr, 0), i, xerr=[[max(snr, 0) - max(lo, 0)], [hi - max(snr, 0)]], color=INK, capsize=3, lw=1)
+        b = r["B_noise"]; bci = r["B_noise_ci"]
+        fmt = lambda v: "∞" if v == float("inf") else f"{v:.0f}" if v >= 10 else f"{v:.1f}"
+        ax.text(max(hi, snr) * 1.25 + .002, i, f"B_noise ≈ {fmt(b)}  [{fmt(bci[0])}, {fmt(bci[1])}]",
                 va="center", fontsize=8.5, color=INK2)
-    ax.axvline(8, color=INK, ls="--", lw=1.2); ax.text(8, len(e5) - .4, " batch usado = 8", fontsize=8.5)
-    ax.set_xscale("log"); ax.set_yticks(range(len(e5)), [r["label"] for r in e5])
-    ax.set_xlabel("gradient noise scale  tr(Σ)/‖G‖²  (escala log, IC 90%)")
-    ax.set_title("F9 · Batch crítico: acima de 8 ⇒ o update é dominado por ruído")
+    ax.axvline(1, color=INK, ls="--", lw=1.2)
+    ax.text(1.03, -0.9, "SNR = 1  ⇔  B_noise = 8 (batch usado)", fontsize=8.5)
+    ax.set_yticks(range(len(e5)), [r["label"] for r in e5])
+    ax.set_ylim(-1.2, len(e5) - .4)
+    ax.set_xscale("symlog", linthresh=0.01, linscale=0.5)
+    ax.set_xlim(0, max(r["snr_at_batch8_ci"][1] for r in e5) * 60)
+    ax.set_xlabel("SNR do update com batch 8  =  8·‖G‖² / tr(Σ)   (IC 90%, jackknife; escala symlog)")
+    ax.set_title("F9 · Sinal vs ruído do gradiente (< 1 ⇒ passo dominado por ruído)")
     save(fig, "F9_gradient_noise_scale.png")
