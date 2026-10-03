@@ -149,11 +149,11 @@ if e4:
     for i, g in enumerate(gfl):
         axs[0].text(i, g + .05, f"{100 * (g / gfl[0] - 1):+.1f}%", ha="center", fontsize=8, color=INK2)
     axs[0].set_ylim(0, max(gfl) * 1.12); axs[0].set_ylabel("GFLOPs / imagem / NFE")
-    axs[0].set_title("F6a · Custo teórico (SDPA incluído)")
+    axs[0].set_title("F6a · Custo teórico\n(SDPA incluído)")
     attn_soft = 0.302 + sdpa; attn_lin = 0.332
     axs[1].bar([0, 1], [attn_soft * 1e3, attn_lin * 1e3], color=[COL["baseline"], COL["linear"]])
     axs[1].set_xticks([0, 1], ["softmax\n(4N²C + projeções)", "LiT linear\n(4NC·d + DWConv)"])
-    axs[1].set_ylabel("MFLOPs / bloco de atenção"); axs[1].set_title("F6b · Atenção, N=256 tokens (−17%)")
+    axs[1].set_ylabel("MFLOPs / bloco de atenção"); axs[1].set_title("F6b · Atenção por bloco\n(N=256 tokens: −17%)")
     key = "interleaved_ms" if "interleaved_ms" in e4.get("baseline", {}) else None
     if key:
         lat = [np.median(e4[v][key]) for v in order]
@@ -165,7 +165,7 @@ if e4:
             axs[2].text(i, q[i][1] + 10, f"{100 * (l / lat[0] - 1):+.1f}%", ha="center", fontsize=8, color=INK2)
         axs[2].set_ylim(0, max(x[1] for x in q) * 1.15)
         axs[2].set_ylabel("ms por forward (mediana, IQR)")
-        axs[2].set_title(e4["baseline"].get("interleaved_desc", "F6c · Latência medida"))
+        axs[2].set_title("F6c · Latência medida\n(MPS, batch 32, 40 rodadas intercaladas)")
     for ax in (axs[0], axs[2]) if key else (axs[0],):
         ax.set_xticks(range(len(order)), order, rotation=30, ha="right")
     save(fig, "F6_compute.png")
@@ -173,7 +173,8 @@ if e4:
 # F7/F8: learning curves 0 -> 60k ------------------------------------------------------------------
 e6 = load("e6_summary.json")
 if e6:
-    fig, axs = plt.subplots(1, 2, figsize=(13, 4.2))
+    fig, axs = plt.subplots(1, 2, figsize=(14, 4.4), gridspec_kw=dict(width_ratios=[1.35, 1]))
+    fits = []
     for v, d in e6.items():
         rows = d["rows"]
         if not rows:
@@ -182,7 +183,6 @@ if e6:
         lo = np.array([r["ci"][0] for r in rows]); hi = np.array([r["ci"][1] for r in rows])
         for ax in axs:
             if ax is axs[1] and v not in ("uvit", "baseline"):
-                ax.plot(s / 1e3, m * 1e3, "o-", color=COL[v], ms=4, label=v, alpha=.35)
                 continue
             scale = 1e3 if ax is axs[1] else 1
             ax.fill_between(s / 1e3, lo * scale, hi * scale, color=COL[v], alpha=.18, lw=0)
@@ -190,14 +190,15 @@ if e6:
         if d.get("fit"):
             f = d["fit"]; ss = np.linspace(5e3, 1e5, 200)
             axs[0].plot(ss / 1e3, f["c"] + f["a"] * (ss / 1e4) ** (-f["alpha"]), color=COL[v], ls=":", lw=1.5)
-            axs[0].text(100, f["c"], f"  c={f['c']:.3f}\n  [{f['c_ci'][0]:.3f},{f['c_ci'][1]:.3f}]",
-                        color=INK2, fontsize=8, va="center")
+            fits.append(f"{v}: c = {f['c']:+.4f} [{f['c_ci'][0]:+.4f}, {f['c_ci'][1]:+.4f}],  α = {f['alpha']:.2f}")
+    axs[0].text(0.36, 0.55, "assíntota (IC 95%):\n" + "\n".join(fits), transform=axs[0].transAxes,
+                fontsize=8.5, color=INK, va="top", bbox=dict(fc=SURF, ec=GRID, boxstyle="round,pad=.4"))
     axs[0].set_yscale("symlog", linthresh=0.01); axs[0].axhline(0, color=INK, lw=1)
     axs[0].axvline(60, color=INK2, lw=.8, ls="--")
-    axs[0].set_title("F7a · ΔL vs passo (pontilhado: ajuste c + a·s^−α, extrapolado até 100k)")
+    axs[0].set_title("F7a · ΔL vs passo (pontilhado: c + a·s^−α até 100k)")
     axs[0].set_xlabel("passo (×1000)"); axs[0].set_ylabel("ΔL vs pré-treinado (symlog)"); axs[0].legend()
-    axs[1].axhline(0, color=INK, lw=1); axs[1].set_ylim(-1, 4)
-    axs[1].set_title("F7b · Zoom: uvit e baseline fine-tunado (×10³)")
+    axs[1].axhline(0, color=INK, lw=1)
+    axs[1].set_title("F7b · Zoom (×10³): uvit vs baseline fine-tunado")
     axs[1].set_xlabel("passo (×1000)"); axs[1].set_ylabel("ΔL × 10³ (IC 95%)"); axs[1].legend()
     save(fig, "F7_learning_curves_60k.png")
 
