@@ -7,3 +7,96 @@ evaluated uvit@45000
 evaluated uvit@50000
 evaluated uvit@55000
 evaluated uvit@60000
+evaluated linear@5000
+evaluated linear@10000
+evaluated linear@15000
+evaluated linear@20000
+evaluated linear@25000
+evaluated linear@30000
+evaluated linear@35000
+evaluated linear@40000
+evaluated linear@45000
+evaluated linear@50000
+evaluated linear@55000
+evaluated linear@60000
+evaluated linear_uvit@5000
+evaluated linear_uvit@10000
+evaluated linear_uvit@15000
+evaluated linear_uvit@20000
+evaluated linear_uvit@25000
+evaluated linear_uvit@30000
+evaluated linear_uvit@35000
+evaluated linear_uvit@40000
+evaluated linear_uvit@45000
+evaluated linear_uvit@50000
+evaluated linear_uvit@55000
+evaluated linear_uvit@60000
+evaluated baseline@2500
+evaluated baseline@5000
+evaluated baseline@7500
+evaluated baseline@10000
+        uvit @     0: dL=+0.00000 [+0.00000,+0.00000] (+0.00%)
+        uvit @ 10000: dL=+0.00047 [+0.00019,+0.00076] (+0.06%)
+        uvit @ 20000: dL=+0.00042 [+0.00017,+0.00067] (+0.05%)
+        uvit @ 30000: dL=+0.00011 [-0.00022,+0.00046] (+0.01%)
+        uvit @ 40000: dL=+0.00063 [+0.00031,+0.00096] (+0.08%)
+        uvit @ 45000: dL=+0.00048 [+0.00021,+0.00075] (+0.06%)
+        uvit @ 50000: dL=+0.00013 [-0.00009,+0.00035] (+0.02%)
+        uvit @ 55000: dL=-0.00014 [-0.00039,+0.00010] (-0.02%)
+        uvit @ 60000: dL=-0.00040 [-0.00064,-0.00015] (-0.05%)
+      linear @     0: dL=+1.72311 [+1.67628,+1.76936] (+215.89%)
+      linear @  5000: dL=+0.03956 [+0.03796,+0.04113] (+4.96%)
+      linear @ 10000: dL=+0.02628 [+0.02514,+0.02741] (+3.29%)
+      linear @ 15000: dL=+0.02026 [+0.01935,+0.02118] (+2.54%)
+      linear @ 20000: dL=+0.01667 [+0.01588,+0.01746] (+2.09%)
+      linear @ 25000: dL=+0.01465 [+0.01394,+0.01537] (+1.84%)
+      linear @ 30000: dL=+0.01297 [+0.01232,+0.01363] (+1.63%)
+      linear @ 35000: dL=+0.01184 [+0.01122,+0.01244] (+1.48%)
+      linear @ 40000: dL=+0.01092 [+0.01032,+0.01150] (+1.37%)
+      linear @ 45000: dL=+0.01020 [+0.00964,+0.01076] (+1.28%)
+      linear @ 50000: dL=+0.00949 [+0.00895,+0.01003] (+1.19%)
+      linear @ 55000: dL=+0.00894 [+0.00843,+0.00946] (+1.12%)
+      linear @ 60000: dL=+0.00855 [+0.00805,+0.00905] (+1.07%)
+   fit: {'c': -0.00072, 'a': 0.02668, 'alpha': 0.59788, 'c_ci': [-0.00139, -0.00013], 'alpha_ci': [0.57735, 0.61751], 'pred_100k': 0.00602, 'pred_1M': 0.00098}
+ linear_uvit @     0: dL=+1.65557 [+1.60706,+1.70291] (+207.42%)
+ linear_uvit @  5000: dL=+0.03007 [+0.02885,+0.03128] (+3.77%)
+ linear_uvit @ 10000: dL=+0.02078 [+0.01989,+0.02165] (+2.60%)
+ linear_uvit @ 15000: dL=+0.01698 [+0.01622,+0.01772] (+2.13%)
+ linear_uvit @ 20000: dL=+0.01425 [+0.01357,+0.01494] (+1.79%)
+ linear_uvit @ 25000: dL=+0.01309 [+0.01245,+0.01372] (+1.64%)
+ linear_uvit @ 30000: dL=+0.01183 [+0.01124,+0.01245] (+1.48%)
+ linear_uvit @ 35000: dL=+0.01129 [+0.01070,+0.01188] (+1.41%)
+ linear_uvit @ 40000: dL=+0.01090 [+0.01031,+0.01149] (+1.37%)
+ linear_uvit @ 45000: dL=+0.01051 [+0.00996,+0.01105] (+1.32%)
+ linear_uvit @ 50000: dL=+0.00987 [+0.00934,+0.01040] (+1.24%)
+ linear_uvit @ 55000: dL=+0.00916 [+0.00866,+0.00968] (+1.15%)
+ linear_uvit @ 60000: dL=+0.00907 [+0.00857,+0.00956] (+1.14%)
+   fit: {'c': 0.00374, 'a': 0.0169, 'alpha': 0.64166, 'c_ci': [0.00293, 0.00444], 'alpha_ci': [0.60203, 0.6795], 'pred_100k': 0.0076, 'pred_1M': 0.00462}
+    baseline @  2500: dL=+0.00651 [+0.00597,+0.00708] (+0.82%)
+    baseline @  5000: dL=+0.00856 [+0.00788,+0.00923] (+1.07%)
+    baseline @  7500: dL=+0.00832 [+0.00766,+0.00902] (+1.04%)
+    baseline @ 10000: dL=+0.00966 [+0.00876,+0.01074] (+1.21%)
+== E4b
+baseline 682.9
+uvit 672.6
+linear 718.7
+linear_uvit 709.8
+full_uvit 676.9
+full_linear 781.6
+full_linear_uvit 771.4
+== E5 final
+{"variant": "linear", "label": "linear @60k (aten\u00e7\u00e3o LiT)", "n": 256, "params": 2372096, "trace_sigma": 0.017429933347619567, "G_norm2": 1.145574221536449e-05, "B_noise": 1521.5018826316173, "B_noise_ci": [772.4500646932563, 50229.585147177895], "snr_at_batch8": 0.005257962603479041, "snr_at_batch8_ci": [0.0001592686855079366, 0.010356656521450146]}
+{"variant": "linear_uvit", "label": "linear_uvit @60k", "n": 256, "params": 2962688, "trace_sigma": 2.4681806419397416, "G_norm2": 0.04186103774408441, "B_noise": 58.961286555504294, "B_noise_ci": [35.12608208241861, 183.4294076061646], "snr_at_batch8": 0.1356822496142287, "snr_at_batch8_ci": [0.04361350834854433, 0.22775099087991307]}
+{"variant": "uvit", "label": "uvit @60k (skips)", "n": 256, "params": 590592, "trace_sigma": 7.233319864374883, "G_norm2": 0.05598665121994676, "B_noise": 129.1972230301536, "B_noise_ci": [50.4666258065304, Infinity], "snr_at_batch8": 0.06192083554406478, "snr_at_batch8_ci": [-0.03467893281887458, 0.15852060390700415]}
+{"variant": "baseline", "label": "baseline fine-tune @10k (33M)", "n": 256, "params": 32865056, "trace_sigma": 0.8836012995040656, "G_norm2": 0.1403978264426991, "B_noise": 6.293553980799638, "B_noise_ci": [4.87084478435697, 8.890289781495923], "snr_at_batch8": 1.2711418737976006, "snr_at_batch8_ci": [0.899858181974118, 1.642425565621083]}
+== figures
+wrote F1_init_damage.png
+wrote F2_uvit_random_walk.png
+wrote F3_attention_capacity.png
+wrote F4_entropy_by_t.png
+wrote F5_distillation_ceiling.png
+wrote F6_compute.png
+wrote F7_learning_curves_60k.png
+wrote F8_gap_by_t.png
+wrote F9_gradient_noise_scale.png
+FINALIZE_DONE

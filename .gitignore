@@ -6,4 +6,4 @@ samples
 results
 pretrained_models
 data
-analysis/out/queue.log
+analysis/out/*.log
